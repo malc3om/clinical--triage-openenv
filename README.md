@@ -6,7 +6,7 @@ colorTo: red
 sdk: docker
 app_port: 7860
 ---
-# ClinicalTriageEnv 🏥
+# ClinicalTriageEnv 
 
 > **An OpenEnv environment for Emergency Department triage simulation.**
 > AI agents step into the role of ED triage clinicians — assessing patients, ordering diagnostics, assigning acuity levels, and making disposition decisions under time pressure and resource constraints.
