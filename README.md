@@ -1,3 +1,11 @@
+---
+title: Clinical Triage Env
+emoji: 🏥
+colorFrom: blue
+colorTo: red
+sdk: docker
+app_port: 7860
+---
 # ClinicalTriageEnv 🏥
 
 > **An OpenEnv environment for Emergency Department triage simulation.**
