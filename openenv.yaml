@@ -1,0 +1,36 @@
+name: clinical-triage-env
+version: "1.0.0"
+description: >
+  A real-world Emergency Department triage environment where an AI agent
+  must assess patients, order diagnostics, assign acuity levels, and make
+  disposition decisions under time pressure and resource constraints.
+  Simulates three clinical scenarios of increasing difficulty.
+author: "Team Unfazed"
+tags:
+  - openenv
+  - healthcare
+  - clinical-decision-making
+  - triage
+  - reinforcement-learning
+  - emergency-medicine
+entry_point: clinical_triage_env.app:app
+tasks:
+  - id: task_stemi_code
+    difficulty: easy
+    description: "Clear STEMI presentation. Agent must activate cath lab pathway within time window."
+    max_steps: 15
+  - id: task_chest_pain_workup
+    difficulty: medium
+    description: "Ambiguous chest pain with PE risk factors. Agent must navigate differential diagnosis with ordered test sequencing."
+    max_steps: 20
+  - id: task_mci_surge
+    difficulty: hard
+    description: "Mass casualty: 5 simultaneous patients, 3 beds. Agent must correctly triage under resource scarcity."
+    max_steps: 25
+observation_type: clinical_triage_env.models.TriageObservation
+action_type: clinical_triage_env.models.TriageAction
+reward_range: [-1.0, 1.0]
+baseline_scores:
+  task_stemi_code: 0.72
+  task_chest_pain_workup: 0.48
+  task_mci_surge: 0.31
