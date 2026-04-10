@@ -56,8 +56,9 @@ dashboard_out_path = os.path.join(os.path.dirname(__file__), "..", "dashboard_ou
 if os.path.exists(dashboard_out_path):
     app.mount("/dashboard", StaticFiles(directory=dashboard_out_path, html=True), name="dashboard")
 
-# Global environment instance (sufficient for hackathon scope)
-env = ClinicalTriageEnvironment()
+# Session store for per-request environments
+envs: dict[str, ClinicalTriageEnvironment] = {}
+default_env = ClinicalTriageEnvironment()
 
 # Keep track of websocket connected clients
 active_websockets: list[WebSocket] = []
@@ -67,6 +68,7 @@ active_websockets: list[WebSocket] = []
 
 class ResetRequest(BaseModel):
     task_id: str = "task_stemi_code"
+    episode_id: Optional[str] = None
 
 
 class GradeRequest(BaseModel):
@@ -79,6 +81,7 @@ class StepRequest(BaseModel):
     patient_id: str
     parameter: str
     rationale: Optional[str] = None
+    episode_id: Optional[str] = None
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────
@@ -100,18 +103,23 @@ async def health():
     return {"status": "healthy"}
 
 
-@app.get("/dashboard")
-async def dashboard_redirect():
-    """Redirect to the dashboard index."""
-    return RedirectResponse(url="/dashboard/index.html")
-
 
 @app.post("/reset", response_model=TriageObservation)
 async def reset(request: Optional[ResetRequest] = None):
     """Reset the environment for a new episode."""
     task_id = request.task_id if request else "task_stemi_code"
+    episode_id = request.episode_id if request else None
     try:
-        obs = env.reset(task_id=task_id)
+        e = ClinicalTriageEnvironment()
+        obs = e.reset(task_id=task_id, episode_id=episode_id)
+        
+        current_episode_id = e.state.episode_id
+        if current_episode_id:
+            envs[current_episode_id] = e
+            
+        global default_env
+        default_env = e
+        
         return obs
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -120,6 +128,7 @@ async def reset(request: Optional[ResetRequest] = None):
 @app.post("/step", response_model=TriageObservation)
 async def step(request: StepRequest):
     """Execute one action in the environment."""
+    e = envs.get(request.episode_id, default_env) if request.episode_id else default_env
     try:
         action = TriageAction(
             action_type=request.action_type,
@@ -127,47 +136,24 @@ async def step(request: StepRequest):
             parameter=request.parameter,
             rationale=request.rationale,
         )
-        result = env.step(action)
+        result = e.step(action)
         return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/state")
-async def get_state():
+async def get_state(episode_id: Optional[str] = None):
     """Return current episode state."""
-    return env.state.model_dump()
+    e = envs.get(episode_id, default_env) if episode_id else default_env
+    return e.state.model_dump()
 
-
-class RunAgentRequest(BaseModel):
-    task_id: str
-
-
-@app.post("/run_agent")
-async def trigger_run_agent(request: RunAgentRequest):
-    """Trigger the inference script to run the task autonomously."""
-    import subprocess
-    import threading
-    import sys
-    
-    # We will spawn the inference script to act as the client
-    # Pass the task ID via environment variable so it only runs that one
-    environ = os.environ.copy()
-    environ["TASK_NAME"] = request.task_id
-    
-    inference_script = os.path.join(os.path.dirname(__file__), "..", "inference.py")
-    
-    def background_run():
-        subprocess.run([sys.executable, inference_script], env=environ)
-        
-    threading.Thread(target=background_run, daemon=True).start()
-    return {"status": "triggered"}
 
 
 @app.get("/tasks")
 async def list_tasks():
     """Return list of all available tasks with descriptions."""
-    tasks = env.get_tasks()
+    tasks = default_env.get_tasks()
     return {
         "tasks": [t.model_dump() for t in tasks],
         "action_schema": {
@@ -239,10 +225,12 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             command = data.get("type")
+            episode_id = data.get("episode_id")
+            e = envs.get(episode_id, default_env) if episode_id else default_env
             
             if command == "reset":
                 task_id = data.get("task_id", "task_stemi_code")
-                obs = env.reset(task_id=task_id)
+                obs = e.reset(task_id=task_id, episode_id=episode_id)
                 await websocket.send_json({
                     "type": "observation",
                     "data": obs.model_dump()
@@ -256,7 +244,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     parameter=action_data.get("parameter"),
                     rationale=action_data.get("rationale"),
                 )
-                obs = env.step(action)
+                obs = e.step(action)
                 await websocket.send_json({
                     "type": "observation",
                     "data": obs.model_dump()

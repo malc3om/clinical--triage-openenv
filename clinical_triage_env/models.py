@@ -126,3 +126,4 @@ class TaskInfo(BaseModel):
     description: str
     max_steps: int
     baseline_score: float
+    total_beds: int = 10

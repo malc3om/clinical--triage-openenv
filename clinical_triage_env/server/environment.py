@@ -55,6 +55,7 @@ TASKS = {
         description="Mass casualty: 5 simultaneous patients, 3 beds. Agent must correctly triage under scarcity.",
         max_steps=25,
         baseline_score=0.31,
+        total_beds=3,
     ),
 }
 
@@ -100,10 +101,7 @@ class ClinicalTriageEnvironment:
         self._done = False
 
         # Determine available beds
-        if task_id == "task_mci_surge":
-            available_beds = 3
-        else:
-            available_beds = 10
+        available_beds = self._task_info.total_beds
 
         self._state = TriageState(
             episode_id=kwargs.get("episode_id") or str(uuid.uuid4()),
@@ -361,7 +359,10 @@ class ClinicalTriageEnvironment:
             
             # Instant termination for fatal signal from reward engine
             last_reward_components = self._state.episode_history[-1].get("reward_components", {})
-            if "fatal_delay" in last_reward_components or "safety_guardrail" in last_reward_components and last_reward_components["safety_guardrail"] <= -10:
+            if "fatal_delay" in last_reward_components or (
+                "safety_guardrail" in last_reward_components 
+                and last_reward_components.get("safety_guardrail", 0) <= -10
+            ):
                 return True
 
             if last_action.get("action_type") == "disposition":
@@ -387,11 +388,10 @@ class ClinicalTriageEnvironment:
         """Construct observation from current state."""
         task_id = self._state.task_id
 
-        # Calculate available beds for MCI
-        available_beds = 10
-        if task_id == "task_mci_surge":
-            admits = sum(1 for d in self._state.dispositions.values() if "admit" in d)
-            available_beds = max(0, 3 - admits)
+        # Calculate available beds based on task info
+        available_beds = self._task_info.total_beds if self._task_info else 10
+        admits = sum(1 for d in self._state.dispositions.values() if "admit" in d)
+        available_beds = max(0, available_beds - admits)
 
         return TriageObservation(
             done=done,

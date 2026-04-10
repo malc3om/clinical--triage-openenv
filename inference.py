@@ -30,26 +30,22 @@ from clinical_triage_env.server.environment import ClinicalTriageEnvironment
 BENCHMARK = "clinical_triage"
 
 def get_config():
-    use_deterministic = os.environ.get("USE_DETERMINISTIC", "false").lower() == "true"
     api_base_url = os.environ.get("API_BASE_URL") or "https://api.openai.com/v1"
     api_key = os.environ.get("API_KEY") or "not-set"
     model_name = os.environ.get("MODEL_NAME") or "gpt-4o-mini"
-    return use_deterministic, api_base_url, api_key, model_name
+    return api_base_url, api_key, model_name
 
 
 # ─── Logging (OpenEnv-compatible format) ────────────────────────────────
 
 def log_start(task: str, env: str, model: str) -> None:
-    print(f"[START] task={task} env={env} model={model}", flush=True)
+    print(f"[START] task_name={task} task_id={task}", flush=True)
 
-def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    error_val = error if error else "null"
-    done_val = str(done).lower()
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+def log_step(step: int, action: str, observation: str, reward: float, done: bool, error: Optional[str]) -> None:
+    print(f"[STEP] step={step} action={action} observation={observation} reward={reward:.2f}", flush=True)
 
-def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+def log_end(task: str, score: float) -> None:
+    print(f"[END] task_name={task} score={score:.3f}", flush=True)
 
 
 # ─── System prompt for clinical reasoning ───────────────────────────────
@@ -321,62 +317,7 @@ def _estimate_esi(patient) -> int:
     return 3
 
 
-# ─── Deterministic fallback for local testing ───────────────────────────
-#
-# ONLY used when USE_DETERMINISTIC=true (local dev, never during evaluation).
-# Uses the same clinical heuristic but skips LLM entirely.
 
-def run_task_deterministic(
-    env: ClinicalTriageEnvironment,
-    task_id: str,
-    max_steps: int = 20,
-) -> float:
-    """Run a task using clinical heuristics only (for local dev without API keys)."""
-    observation = env.reset(task_id=task_id)
-    history: list = []
-    rewards: list[float] = []
-
-    log_start(task=task_id, env=BENCHMARK, model="clinical-heuristic")
-
-    for step_num in range(1, max_steps + 1):
-        action_dict = clinical_heuristic_fallback(observation, history)
-        action_str = json.dumps(action_dict)
-        error_msg = None
-
-        try:
-            action = TriageAction(**action_dict)
-            result = env.step(action)
-        except Exception as exc:
-            result = observation
-            result.reward = -0.1
-            result.done = True
-            error_msg = str(exc)
-
-        reward = result.reward if result.reward is not None else 0.0
-        done = result.done
-        rewards.append(reward)
-
-        history.append({
-            "step": step_num,
-            "action": action_dict,
-            "reward": reward,
-        })
-
-        log_step(step=step_num, action=action_str, reward=reward, done=done, error=error_msg)
-
-        if done:
-            break
-        observation = result
-
-    try:
-        grader_result = env.get_task_grader_score(task_id)
-        score = max(0.0, min(1.0, grader_result.score))
-    except Exception:
-        score = 0.0
-
-    success = score >= 0.7
-    log_end(success=success, steps=len(rewards), score=score, rewards=rewards)
-    return score
 
 
 # ─── LLM Agent (primary execution path) ─────────────────────────────────
@@ -393,7 +334,9 @@ def run_task_with_llm(
     Makes real API calls through the injected API_BASE_URL proxy.
     Falls back to clinical heuristics only on LLM parse errors.
     """
-    _, api_base_url, api_key, model_name = get_config()
+    api_base_url, api_key, model_name = get_config()
+    
+    print(f"[CONFIG] Using LLM at {api_base_url}", flush=True)
 
     client = OpenAI(
         base_url=api_base_url,
@@ -456,7 +399,8 @@ def run_task_with_llm(
             "result": getattr(result, 'last_action_result', None),
         })
 
-        log_step(step=step_num, action=action_str, reward=reward, done=done, error=error_msg)
+        obs_str = json.dumps(observation.model_dump(), default=str)
+        log_step(step=step_num, action=action_str, observation=obs_str, reward=reward, done=done, error=error_msg)
 
         if done:
             break
@@ -469,8 +413,7 @@ def run_task_with_llm(
     except Exception:
         score = 0.0
 
-    success = score >= 0.7
-    log_end(success=success, steps=len(rewards), score=score, rewards=rewards)
+    log_end(task=task_id, score=score)
     return score
 
 
@@ -481,7 +424,6 @@ def main():
     env = ClinicalTriageEnvironment()
 
     task_name_env = os.environ.get("TASK_NAME")
-    use_deterministic, _, _, _ = get_config()
 
     if task_name_env:
         tasks = [(task_name_env, 25)]
@@ -495,10 +437,7 @@ def main():
     scores = {}
 
     for task_id, max_steps in tasks:
-        if use_deterministic:
-            score = run_task_deterministic(env, task_id, max_steps)
-        else:
-            score = run_task_with_llm(env, task_id, max_steps)
+        score = run_task_with_llm(env, task_id, max_steps)
         scores[task_id] = score
 
     # Print summary
