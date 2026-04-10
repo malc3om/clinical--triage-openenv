@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
-  basePath: '/dashboard',
+  assetPrefix: '/dashboard',
 };
 
 export default nextConfig;
