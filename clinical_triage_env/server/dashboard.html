@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLINICAL TRIAGE | MONITORING STATION V2.0</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #000;
+            --terminal-green: #00ff41;
+            --critical-red: #ff3e3e;
+            --warning-yellow: #ffb800;
+            --neural-blue: #00f0ff;
+            --border: #333;
+            --glass: rgba(15, 15, 15, 0.8);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--terminal-green);
+            font-family: 'JetBrains Mono', monospace;
+            overflow: hidden;
+            height: 100vh;
+            display: grid;
+            grid-template-areas: 
+                "header header header"
+                "patients trace terminal"
+                "controls controls terminal";
+            grid-template-columns: 1fr 400px 400px;
+            grid-template-rows: 60px 1fr 200px;
+            gap: 10px;
+            padding: 10px;
+        }
+
+        /* Scanline effect */
+        body::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        header {
+            grid-area: header;
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            background: var(--glass);
+        }
+
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 30px;
+            font-size: 14px;
+        }
+
+        .panel {
+            border: 2px solid var(--border);
+            background: var(--glass);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: var(--border);
+            color: #fff;
+            padding: 5px 10px;
+            font-size: 12px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        /* Patient Grid */
+        #patient-panel {
+            grid-area: patients;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 10px;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .patient-card {
+            border: 1px solid var(--border);
+            padding: 15px;
+            position: relative;
+            background: rgba(20, 20, 20, 0.5);
+        }
+
+        .patient-card.critical {
+            border-color: var(--critical-red);
+            box-shadow: 0 0 10px rgba(255, 62, 62, 0.3);
+            animation: pulse-red 2s infinite;
+        }
+
+        @keyframes pulse-red {
+            0% { background: rgba(20, 20, 20, 0.5); }
+            50% { background: rgba(50, 0, 0, 0.5); }
+            100% { background: rgba(20, 20, 20, 0.5); }
+        }
+
+        .patient-id {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            opacity: 0.5;
+            font-size: 12px;
+        }
+
+        .vitals-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .vital {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .vital-label {
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
+        .vital-value {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .trend-up { color: var(--critical-red); }
+        .trend-down { color: var(--neural-blue); }
+
+        /* Neural Trace */
+        #trace-panel {
+            grid-area: trace;
+        }
+
+        #neural-stream {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            color: var(--neural-blue);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .thought-bubble {
+            margin-bottom: 15px;
+            border-left: 2px solid var(--neural-blue);
+            padding-left: 10px;
+        }
+
+        /* Terminal */
+        #terminal-panel {
+            grid-area: terminal;
+        }
+
+        #log-output {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+
+        .log-entry { margin-bottom: 5px; }
+        .log-time { color: #888; }
+        .log-error { color: var(--critical-red); }
+
+        /* Controls */
+        #control-panel {
+            grid-area: controls;
+            padding: 15px;
+            display: grid;
+            grid-template-columns: 200px 1fr 300px;
+            gap: 20px;
+        }
+
+        .btn {
+            background: transparent;
+            border: 1px solid var(--terminal-green);
+            color: var(--terminal-green);
+            padding: 10px;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: var(--terminal-green);
+            color: #000;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        select, input {
+            background: #111;
+            border: 1px solid var(--border);
+            color: var(--terminal-green);
+            padding: 8px;
+            font-family: inherit;
+        }
+
+        .step-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .progress-bar {
+            height: 4px;
+            background: var(--border);
+            margin-top: 5px;
+        }
+
+        #progress-fill {
+            height: 100%;
+            background: var(--terminal-green);
+            width: 0%;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="title">TRIAGE_OS // V2.0</div>
+        <div class="status-bar">
+            <span>EPISODE: <span id="episode-id">LOAD_INIT</span></span>
+            <span>TIME: <span id="elapsed-time">00:00</span></span>
+            <span>REWARD: <span id="reward">0.00</span></span>
+        </div>
+    </header>
+
+    <div id="patient-panel" class="panel">
+        <div class="panel-header">Vital Monitors</div>
+        <div id="patients-container"></div>
+    </div>
+
+    <div id="trace-panel" class="panel">
+        <div class="panel-header">Neural Trace (LLM Thought Stream)</div>
+        <div id="neural-stream"></div>
+    </div>
+
+    <div id="terminal-panel" class="panel">
+        <div class="panel-header">Event Log</div>
+        <div id="log-output"></div>
+    </div>
+
+    <div id="control-panel" class="panel">
+        <div class="panel-header">Command Center</div>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <select id="task-select">
+                <option value="task_stemi_code">TASK: STEMI_CODE</option>
+                <option value="task_chest_pain_workup">TASK: CHEST_PAIN</option>
+                <option value="task_mci_surge">TASK: MCI_SURGE</option>
+            </select>
+            <button class="btn" onclick="app.reset()">Initialize Simulation</button>
+        </div>
+        <div class="step-info">
+            <span>STEP: <span id="step-count">0/15</span></span>
+            <div class="progress-bar"><div id="progress-fill"></div></div>
+            <div id="last-result" style="font-size: 11px; margin-top: 5px; opacity: 0.8;">Awaiting simulation start...</div>
+        </div>
+        <button class="btn" style="border-color: var(--neural-blue); color: var(--neural-blue);" onclick="app.runAgent()">Execute Agent Sequence</button>
+    </div>
+
+    <script>
+        class TriageApp {
+            constructor() {
+                this.ws = null;
+                this.connect();
+                this.patients_container = document.getElementById('patients-container');
+                this.log_output = document.getElementById('log-output');
+                this.neural_stream = document.getElementById('neural-stream');
+            }
+
+            connect() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const host = window.location.host;
+                this.ws = new WebSocket(`${protocol}//${host}/ws`);
+
+                this.ws.onopen = () => {
+                    this.log("System", "Connection established. Handshake complete.");
+                };
+
+                this.ws.onmessage = (event) => {
+                    const msg = JSON.parse(event.data);
+                    this.handleMessage(msg);
+                };
+
+                this.ws.onclose = () => {
+                    this.log("System", "Stream disconnected. Retrying in 5s...", "error");
+                    setTimeout(() => this.connect(), 5000);
+                };
+            }
+
+            handleMessage(msg) {
+                if (msg.type === 'observation') {
+                    this.updateUI(msg.data);
+                } else if (msg.type === 'token') {
+                    this.appendThought(msg.content);
+                }
+            }
+
+            log(source, message, type = '') {
+                const entry = document.createElement('div');
+                entry.className = `log-entry ${type ? 'log-' + type : ''}`;
+                const time = new Date().toLocaleTimeString('en-US', {hour12: false});
+                entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-source">${source}:</span> ${message}`;
+                this.log_output.prepend(entry);
+            }
+
+            appendThought(content) {
+                // Buffer or stream character by character? Let's just append
+                this.neural_stream.innerHTML += content.replace(/\n/g, '<br>');
+                this.neural_stream.scrollTop = this.neural_stream.scrollHeight;
+            }
+
+            updateUI(data) {
+                document.getElementById('episode-id').textContent = data.task_id.toUpperCase();
+                document.getElementById('elapsed-time').textContent = `${data.elapsed_minutes}m`;
+                document.getElementById('reward').textContent = data.reward ? data.reward.toFixed(2) : "0.00";
+                document.getElementById('step-count').textContent = `${data.step_number}/${data.max_steps}`;
+                document.getElementById('progress-fill').style.width = `${(data.step_number / data.max_steps) * 100}%`;
+                document.getElementById('last-result').textContent = data.last_action_result || "Action executed.";
+
+                if (data.last_action_error) this.log("Error", data.last_action_error, "error");
+                if (data.last_action_result) this.log("Sim", data.last_action_result);
+
+                this.renderPatients(data.patients);
+            }
+
+            renderPatients(patients) {
+                this.patients_container.innerHTML = '';
+                patients.forEach(p => {
+                    const isCritical = p.vitals.systolic_bp < 90 || p.vitals.heart_rate > 120;
+                    const card = document.createElement('div');
+                    card.className = `patient-card ${isCritical ? 'critical' : ''}`;
+                    
+                    const trends = p.vitals_trend || {};
+                    const getTrendClass = (t) => t === '↑' ? 'trend-up' : (t === '↓' ? 'trend-down' : '');
+
+                    card.innerHTML = `
+                        <div class="patient-id">${p.patient_id} | ${p.age}${p.sex}</div>
+                        <div style="font-weight:bold; margin-bottom:10px;">${p.chief_complaint}</div>
+                        <div class="vitals-grid">
+                            <div class="vital">
+                                <span class="vital-label">HR</span>
+                                <span class="vital-value">${p.vitals.heart_rate} <span class="${getTrendClass(trends.HR)}">${trends.HR || ''}</span></span>
+                            </div>
+                            <div class="vital">
+                                <span class="vital-label">BP</span>
+                                <span class="vital-value">${p.vitals.systolic_bp}/${p.vitals.diastolic_bp} <span class="${getTrendClass(trends.BP)}">${trends.BP || ''}</span></span>
+                            </div>
+                            <div class="vital">
+                                <span class="vital-label">SpO2</span>
+                                <span class="vital-value">${p.vitals.spo2}% <span class="${getTrendClass(trends.SpO2)}">${trends.SpO2 || ''}</span></span>
+                            </div>
+                            <div class="vital">
+                                <span class="vital-label">GCS</span>
+                                <span class="vital-value">${p.vitals.gcs} <span class="${getTrendClass(trends.GCS)}">${trends.GCS || ''}</span></span>
+                            </div>
+                        </div>
+                        <div style="margin-top:10px; font-size:10px; opacity:0.8;">
+                            Labs: ${p.available_labs.length} available, ${p.pending_labs.length} pending
+                        </div>
+                    `;
+                    this.patients_container.appendChild(card);
+                });
+            }
+
+            reset() {
+                const taskId = document.getElementById('task-select').value;
+                this.neural_stream.innerHTML = '';
+                this.ws.send(JSON.stringify({
+                    type: 'reset',
+                    task_id: taskId
+                }));
+                this.log("System", `Resetting environment with Task: ${taskId}`);
+            }
+
+            runAgent() {
+                this.log("Neural", "Activating Agent Reasoning Engine...");
+                this.appendThought("<< INITIALIZING REACT AGENT... >>\n");
+                // Fetch from Inference script (In Phase 3 we'll wire this better)
+                // For now just simulate a trigger
+            }
+        }
+
+        const app = new TriageApp();
+    </script>
+</body>
+</html>
