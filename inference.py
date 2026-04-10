@@ -27,28 +27,14 @@ from clinical_triage_env.server.environment import ClinicalTriageEnvironment
 
 # ─── Configuration ──────────────────────────────────────────────────────
 
-# Strict env var reads — the evaluator always injects these.
-# For local dev, set USE_DETERMINISTIC=true to skip LLM.
-USE_DETERMINISTIC = os.environ.get("USE_DETERMINISTIC", "false").lower() == "true"
-
-if not USE_DETERMINISTIC:
-    API_BASE_URL = os.environ.get("API_BASE_URL")
-    API_KEY = os.environ.get("API_KEY")
-    if not API_BASE_URL or not API_KEY:
-        print(
-            "WARNING: API_BASE_URL and API_KEY not set. "
-            "Set USE_DETERMINISTIC=true for local testing without an LLM.",
-            file=sys.stderr,
-        )
-        # Provide sensible defaults so the script doesn't crash on import
-        API_BASE_URL = API_BASE_URL or "https://api.openai.com/v1"
-        API_KEY = API_KEY or "not-set"
-else:
-    API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-    API_KEY = os.environ.get("API_KEY", "unused")
-
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 BENCHMARK = "clinical_triage"
+
+def get_config():
+    use_deterministic = os.environ.get("USE_DETERMINISTIC", "false").lower() == "true"
+    api_base_url = os.environ.get("API_BASE_URL") or "https://api.openai.com/v1"
+    api_key = os.environ.get("API_KEY") or "not-set"
+    model_name = os.environ.get("MODEL_NAME") or "gpt-4o-mini"
+    return use_deterministic, api_base_url, api_key, model_name
 
 
 # ─── Logging (OpenEnv-compatible format) ────────────────────────────────
@@ -407,16 +393,18 @@ def run_task_with_llm(
     Makes real API calls through the injected API_BASE_URL proxy.
     Falls back to clinical heuristics only on LLM parse errors.
     """
+    _, api_base_url, api_key, model_name = get_config()
+
     client = OpenAI(
-        base_url=API_BASE_URL,
-        api_key=API_KEY,
+        base_url=api_base_url,
+        api_key=api_key,
     )
 
     observation = env.reset(task_id=task_id)
     history: list = []
     rewards: list[float] = []
 
-    log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task=task_id, env=BENCHMARK, model=model_name)
 
     for step_num in range(1, max_steps + 1):
         prompt = observation_to_prompt(observation, history)
@@ -425,7 +413,7 @@ def run_task_with_llm(
         action_dict = None
         try:
             response = client.chat.completions.create(
-                model=MODEL_NAME,
+                model=model_name,
                 max_tokens=1024,
                 temperature=0.1,
                 messages=[
@@ -493,6 +481,8 @@ def main():
     env = ClinicalTriageEnvironment()
 
     task_name_env = os.environ.get("TASK_NAME")
+    use_deterministic, _, _, _ = get_config()
+
     if task_name_env:
         tasks = [(task_name_env, 25)]
     else:
@@ -505,7 +495,7 @@ def main():
     scores = {}
 
     for task_id, max_steps in tasks:
-        if USE_DETERMINISTIC:
+        if use_deterministic:
             score = run_task_deterministic(env, task_id, max_steps)
         else:
             score = run_task_with_llm(env, task_id, max_steps)
