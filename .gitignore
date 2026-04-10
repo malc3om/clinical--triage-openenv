@@ -30,7 +30,9 @@ node_modules/
 out/
 dashboard_out/
 
-# Lock files (not needed in repo)
+# Lock files
+uv.lock
+package-lock.json
 
 # Misc
 *.log
