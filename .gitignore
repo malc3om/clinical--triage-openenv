@@ -31,7 +31,6 @@ out/
 dashboard_out/
 
 # Lock files
-uv.lock
 package-lock.json
 
 # Misc
