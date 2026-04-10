@@ -29,6 +29,16 @@ API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 USE_LLM = os.environ.get("USE_LLM", "false").lower() == "true"
+AGENT_PROVIDER = os.environ.get("AGENT_PROVIDER", "openai").lower() # openai, together, groq
+API_KEY = os.environ.get("API_KEY", os.environ.get("OPENAI_API_KEY", "dummy"))
+
+# Configure provider defaults
+if AGENT_PROVIDER == "together":
+    API_BASE_URL = "https://api.together.xyz/v1"
+    MODEL_NAME = os.environ.get("MODEL_NAME", "meta-llama/Llama-3-70b-chat-hf")
+elif AGENT_PROVIDER == "groq":
+    API_BASE_URL = "https://api.groq.com/openai/v1"
+    MODEL_NAME = os.environ.get("MODEL_NAME", "llama3-70b-8192")
 
 BENCHMARK = "clinical_triage"
 
@@ -226,23 +236,35 @@ Think step by step:
 5. For chest pain with PE risk factors: EKG first, then D-dimer, then CT-PA if positive.
 6. For MCI: prioritize ESI-1 patients (unresponsive, anaphylaxis) for beds first.
 
-Available action_types:
 - "order_diagnostic" — Order a test (EKG, d_dimer, ct_pa, troponin_I, cbc, bmp, aspirin_325mg, etc.)
 - "assign_esi_level" — Assign ESI 1-5 (parameter must be "1", "2", "3", "4", or "5")
 - "activate_pathway" — Activate pathway (cath_lab, stroke_code, trauma, etc.)
 - "disposition" — Set final disposition (admit, discharge, transfer, treat_and_street, waiting_room)
 - "request_consult" — Request specialist (cardiology, pulmonology, etc.)
+- "administer_medication" — Administer a specific medication
+- "assign_bed" — Move patient to a bed/room
 - "wait" — Wait for pending results
 
-Respond with ONLY a valid JSON object matching this schema:
+### REASONING PROTOCOL (ReAct) ###
+You MUST weigh time delays against diagnostic certainty.
+Example: Waiting 45 mins for a CT in a STEMI patient is FATAL (-10.0 penalty).
+
+Enclose your internal reasoning in <thought> tags before your JSON action.
+Example:
+<thought>
+Step 1: Patient has crushing chest pain and ST-elevation on EKG.
+Step 2: This is a STEMI (ST-Elevation Myocardial Infarction).
+Step 3: Clinical Priority is the Cath Lab (90m window). I must not delay.
+Step 4: I will assign ESI 1 and activate the cath_lab pathway immediately.
+</thought>
 {
-    "action_type": "...",
+    "action_type": "assign_esi_level",
     "patient_id": "P1",
-    "parameter": "...",
-    "rationale": "brief reasoning"
+    "parameter": "1",
+    "rationale": "STEMI requires immediate resuscitation"
 }
 
-NO markdown, NO explanation — ONLY the raw JSON object."""
+Respond ONLY with your <thought> blocks and the valid JSON object. No other text."""
 
 
 def observation_to_prompt(obs: TriageObservation, history: list) -> str:
@@ -267,21 +289,23 @@ def observation_to_prompt(obs: TriageObservation, history: list) -> str:
 def parse_model_action(response_text: str, task_id: str, step_num: int) -> dict:
     """Parse LLM response into a valid action dict. Falls back to optimal sequence."""
     try:
-        cleaned = response_text.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[-1]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            cleaned = cleaned.strip()
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:].strip()
+        # Extract JSON from potential markdown/thought blocks
+        cleaned = response_text
+        if "<thought>" in cleaned and "</thought>" in cleaned:
+            cleaned = cleaned.split("</thought>")[-1].strip()
+        
+        if "```json" in cleaned:
+            cleaned = cleaned.split("```json")[1].split("```")[0].strip()
+        elif "```" in cleaned:
+            cleaned = cleaned.split("```")[1].split("```")[0].strip()
+        
+        cleaned = cleaned.strip()
         parsed = json.loads(cleaned)
-        # Validate required fields exist
+        
         if all(k in parsed for k in ("action_type", "patient_id", "parameter")):
             return parsed
-        raise ValueError("Missing required fields")
+        raise ValueError("Missing fields")
     except Exception:
-        # Fall back to optimal sequence
         actions = OPTIMAL_SEQUENCES.get(task_id, OPTIMAL_SEQUENCES["task_stemi_code"])
         idx = min(step_num - 1, len(actions) - 1)
         return actions[idx]
@@ -361,7 +385,7 @@ def run_task_with_llm(
     
     client = OpenAI(
         base_url=API_BASE_URL,
-        api_key=HF_TOKEN or os.environ.get("OPENAI_API_KEY", "dummy"),
+        api_key=API_KEY,
     )
     
     observation = env.reset(task_id=task_id)
@@ -370,6 +394,28 @@ def run_task_with_llm(
     
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
     
+    # Try to connect to background websocket for dashboard streaming
+    ws_client = None
+    try:
+        import asyncio
+        import websockets
+        # In a real app we might need an event loop, but for a script we can use sync wrapper
+        import threading
+        
+        # This is a bit hacky for a script, but fits the 'streaming' requirement
+        def start_ws():
+            nonlocal ws_client
+            try:
+                import websocket as ws_lib # Using a sync lib for easier integration in this script
+                ws_client = ws_lib.create_connection(f"ws://localhost:{os.environ.get('PORT', 7860)}/ws")
+            except:
+                pass
+        
+        threading.Thread(target=start_ws).start()
+        time.sleep(1) # Wait for connection
+    except:
+        pass
+
     steps_taken = 0
     
     for step_num in range(1, max_steps + 1):
@@ -378,15 +424,28 @@ def run_task_with_llm(
         try:
             response = client.chat.completions.create(
                 model=MODEL_NAME,
-                max_tokens=512,
+                max_tokens=1024,
                 temperature=0.1,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
+                stream=True
             )
-            response_text = response.choices[0].message.content
-        except Exception:
+            response_text = ""
+            for chunk in response:
+                content = chunk.choices[0].delta.content or ""
+                response_text += content
+                if ws_client and content:
+                    try:
+                        ws_client.send(json.dumps({
+                            "type": "agent_token",
+                            "content": content
+                        }))
+                    except:
+                        pass
+        except Exception as e:
+            print(f"Streaming error: {e}")
             # LLM failed → use optimal sequence
             actions = OPTIMAL_SEQUENCES.get(task_id, OPTIMAL_SEQUENCES["task_stemi_code"])
             idx = min(step_num - 1, len(actions) - 1)
@@ -468,7 +527,7 @@ def main():
     print("FINAL SCORES", flush=True)
     print("=" * 60, flush=True)
     for task_id, score in scores.items():
-        status = "✓ PASS" if score >= 0.7 else "✗ FAIL"
+        status = "[PASS]" if score >= 0.7 else "[FAIL]"
         print(f"  {task_id}: {score:.3f}  {status}", flush=True)
     
     if scores:
