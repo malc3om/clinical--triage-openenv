@@ -16,12 +16,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class Colors:
-    GREEN = ""
-    RED = ""
-    YELLOW = ""
-    CYAN = ""
-    RESET = ""
-    BOLD = ""
+    # Enable ANSI colors on supported terminals
+    _enabled = os.name != "nt" or os.environ.get("TERM") or os.environ.get("WT_SESSION")
+    GREEN = "\033[92m" if _enabled else ""
+    RED = "\033[91m" if _enabled else ""
+    YELLOW = "\033[93m" if _enabled else ""
+    CYAN = "\033[96m" if _enabled else ""
+    RESET = "\033[0m" if _enabled else ""
+    BOLD = "\033[1m" if _enabled else ""
 
 
 def check(name: str, passed: bool, detail: str = ""):

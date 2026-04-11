@@ -51,10 +51,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Dashboard (if built)
+# Dashboard static files path
 dashboard_out_path = os.path.join(os.path.dirname(__file__), "..", "dashboard_out")
-if os.path.exists(dashboard_out_path):
-    app.mount("/dashboard", StaticFiles(directory=dashboard_out_path, html=True), name="dashboard")
+has_dashboard = os.path.exists(dashboard_out_path)
 
 # Session store for per-request environments
 envs: dict[str, ClinicalTriageEnvironment] = {}
@@ -88,7 +87,9 @@ class StepRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    """Health check — returns 200 with environment info."""
+    """Root — serves dashboard if available, otherwise returns health JSON."""
+    if has_dashboard:
+        return RedirectResponse(url="/dashboard/")
     return {
         "status": "ok",
         "env": "clinical-triage-env",
@@ -279,6 +280,11 @@ async def websocket_endpoint(websocket: WebSocket):
         if websocket in active_websockets:
             active_websockets.remove(websocket)
 
+
+# ─── Mount dashboard AFTER all route definitions ────────────────────────
+# This must come last so API routes take priority over static file serving.
+if has_dashboard:
+    app.mount("/dashboard", StaticFiles(directory=dashboard_out_path, html=True), name="dashboard")
 
 # ─── Run server ─────────────────────────────────────────────────────────
 

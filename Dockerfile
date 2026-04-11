@@ -9,6 +9,9 @@ RUN npm run build
 # Stage 2: Python server
 FROM python:3.11-slim
 
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser
+
 WORKDIR /app
 
 # Install system dependencies
@@ -22,9 +25,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
+
 # Copy built dashboard from Stage 1
 COPY --from=builder /app/frontend/out /app/dashboard_out
+
+# Install the package
 RUN pip install -e .
+
+# Ensure appuser owns the working directory
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose port
 EXPOSE 7860
