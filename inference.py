@@ -155,132 +155,18 @@ def clinical_heuristic_fallback(
     history: list,
 ) -> dict:
     """
-    Generic clinical reasoning fallback when LLM response cannot be parsed.
-
-    Uses standard Emergency Department protocols:
-    1. If patients lack ESI assignments → assign based on vitals severity
-    2. If ESI assigned but no workup → order indicated diagnostics
-    3. If workup started → make disposition
+    Fallback action when LLM response cannot be parsed or errors out.
+    Simply waits, forcing the LLM to produce valid JSON to progress.
     """
-    patients = obs.patients
-    if not patients:
-        return {
-            "action_type": "wait",
-            "patient_id": "P1",
-            "parameter": "",
-            "rationale": "No patients visible, waiting for data",
-        }
+    pid = "P1"
+    if obs.patients:
+        pid = obs.patients[0].patient_id
 
-    # Track what we've already done
-    actions_taken = [h.get("action", {}) for h in history]
-    esi_assigned = {
-        a["patient_id"]
-        for a in actions_taken
-        if a.get("action_type") == "assign_esi_level"
-    }
-    dispositions_made = {
-        a["patient_id"]
-        for a in actions_taken
-        if a.get("action_type") == "disposition"
-    }
-
-    # Find patients needing attention
-    for patient in patients:
-        pid = patient.patient_id
-
-        # Skip patients already dispositioned
-        if pid in dispositions_made:
-            continue
-
-        # STEP 1: Assign ESI if not done
-        if pid not in esi_assigned:
-            esi_level = _estimate_esi(patient)
-            return {
-                "action_type": "assign_esi_level",
-                "patient_id": pid,
-                "parameter": str(esi_level),
-                "rationale": f"Vitals-based ESI assignment for {pid}",
-            }
-
-        # STEP 2: Check if critical actions needed
-        vitals = patient.vitals
-        medications = [m.lower() for m in patient.current_medications]
-
-        # STEMI indicators: ST-elevation, chest pain, hypotension
-        if (
-            "chest" in patient.chief_complaint.lower()
-            and vitals.systolic_bp < 100
-            and "pathway_cath_lab" not in medications
-        ):
-            cath_done = any(
-                a.get("action_type") == "activate_pathway"
-                and "cath" in a.get("parameter", "").lower()
-                and a.get("patient_id") == pid
-                for a in actions_taken
-            )
-            if not cath_done:
-                return {
-                    "action_type": "activate_pathway",
-                    "patient_id": pid,
-                    "parameter": "cath_lab",
-                    "rationale": "Suspected STEMI — activate cath lab",
-                }
-
-        # STEP 3: Order a basic diagnostic if none ordered
-        diagnostics_for_patient = [
-            a for a in actions_taken
-            if a.get("action_type") == "order_diagnostic" and a.get("patient_id") == pid
-        ]
-        if len(diagnostics_for_patient) == 0:
-            # Pick a reasonable diagnostic based on complaint
-            complaint = patient.chief_complaint.lower()
-            if "chest" in complaint:
-                test = "EKG"
-            elif "breath" in complaint or "respiratory" in complaint:
-                test = "cbc"
-            elif "anaphylaxis" in complaint or "allergic" in complaint:
-                test = "epinephrine"
-            else:
-                test = "cbc"
-            return {
-                "action_type": "order_diagnostic",
-                "patient_id": pid,
-                "parameter": test,
-                "rationale": f"Initial workup for {complaint}",
-            }
-
-        # STEP 4: Disposition based on severity
-        esi_level = _estimate_esi(patient)
-        if esi_level <= 2:
-            disposition = "admit"
-        elif esi_level == 3:
-            disposition = "admit"
-        else:
-            disposition = "waiting_room"
-
-        return {
-            "action_type": "disposition",
-            "patient_id": pid,
-            "parameter": disposition,
-            "rationale": f"ESI-{esi_level} patient — {disposition}",
-        }
-
-    # All patients handled — try to disposition anyone remaining
-    for patient in patients:
-        if patient.patient_id not in dispositions_made:
-            return {
-                "action_type": "disposition",
-                "patient_id": patient.patient_id,
-                "parameter": "admit",
-                "rationale": "Completing disposition for remaining patient",
-            }
-
-    # Should not reach here
     return {
         "action_type": "wait",
-        "patient_id": patients[0].patient_id,
+        "patient_id": pid,
         "parameter": "",
-        "rationale": "All actions completed, waiting",
+        "rationale": "LLM failed to respond or parse. Waiting.",
     }
 
 
@@ -432,6 +318,9 @@ def main():
             ("task_stemi_code", 15),
             ("task_chest_pain_workup", 20),
             ("task_mci_surge", 25),
+            ("task_sepsis_alert", 20),
+            ("task_stroke_code", 18),
+            ("task_pediatric_resp", 18),
         ]
 
     scores = {}

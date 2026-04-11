@@ -510,6 +510,9 @@ export default function Dashboard() {
                 <option value="task_stemi_code">TASK: STEMI_CODE_ALPHA</option>
                 <option value="task_chest_pain_workup">TASK: CHEST_PAIN_OMEGA</option>
                 <option value="task_mci_surge">TASK: MCI_SURGE_SIGMA</option>
+                <option value="task_sepsis_alert">TASK: SEPSIS_ALERT_TAU</option>
+                <option value="task_stroke_code">TASK: STROKE_CODE_ZETA</option>
+                <option value="task_pediatric_resp">TASK: PEDS_RESP_DELTA</option>
               </select>
               <button 
                 onClick={() => reset((document.getElementById('task-manifest') as HTMLSelectElement).value)}

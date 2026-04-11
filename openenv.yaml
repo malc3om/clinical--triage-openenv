@@ -27,6 +27,18 @@ tasks:
     difficulty: hard
     description: "Mass casualty: 5 simultaneous patients, 3 beds. Agent must correctly triage under resource scarcity."
     max_steps: 25
+  - id: task_sepsis_alert
+    difficulty: medium
+    description: "68yo with fever, hypotension, and altered mental status. Agent must recognize and respond to severe sepsis."
+    max_steps: 20
+  - id: task_stroke_code
+    difficulty: hard
+    description: "72yo with sudden onset facial droop and right-sided weakness. Time critical."
+    max_steps: 18
+  - id: task_pediatric_resp
+    difficulty: medium
+    description: "4yo with severe asthma exacerbation and retractions."
+    max_steps: 18
 observation_type: clinical_triage_env.models.TriageObservation
 action_type: clinical_triage_env.models.TriageAction
 reward_range: [-1.0, 1.0]
@@ -34,3 +46,6 @@ baseline_scores:
   task_stemi_code: 0.72
   task_chest_pain_workup: 0.48
   task_mci_surge: 0.31
+  task_sepsis_alert: 0.60
+  task_stroke_code: 0.55
+  task_pediatric_resp: 0.65

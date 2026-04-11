@@ -28,6 +28,9 @@ from clinical_triage_env.server.reward import compute_step_reward
 from clinical_triage_env.server.graders.stemi_grader import grade_stemi
 from clinical_triage_env.server.graders.chest_workup_grader import grade_chest_workup
 from clinical_triage_env.server.graders.mci_grader import grade_mci
+from clinical_triage_env.server.graders.sepsis_grader import grade_sepsis
+from clinical_triage_env.server.graders.stroke_grader import grade_stroke
+from clinical_triage_env.server.graders.pediatric_grader import grade_pediatric
 from clinical_triage_env.server.vitals_engine import update_vitals
 from clinical_triage_env.server.time_costs import get_action_time_cost
 
@@ -57,12 +60,36 @@ TASKS = {
         baseline_score=0.31,
         total_beds=3,
     ),
+    "task_sepsis_alert": TaskInfo(
+        id="task_sepsis_alert",
+        difficulty="medium",
+        description="68yo with fever, hypotension, and altered mental status. Agent must recognize and respond to severe sepsis.",
+        max_steps=20,
+        baseline_score=0.60,
+    ),
+    "task_stroke_code": TaskInfo(
+        id="task_stroke_code",
+        difficulty="hard",
+        description="72yo with sudden onset facial droop and right-sided weakness. Time critical.",
+        max_steps=18,
+        baseline_score=0.55,
+    ),
+    "task_pediatric_resp": TaskInfo(
+        id="task_pediatric_resp",
+        difficulty="medium",
+        description="4yo with severe asthma exacerbation and retractions.",
+        max_steps=18,
+        baseline_score=0.65,
+    ),
 }
 
 GRADERS = {
     "task_stemi_code": grade_stemi,
     "task_chest_pain_workup": grade_chest_workup,
     "task_mci_surge": grade_mci,
+    "task_sepsis_alert": grade_sepsis,
+    "task_stroke_code": grade_stroke,
+    "task_pediatric_resp": grade_pediatric,
 }
 
 
@@ -337,7 +364,7 @@ class ClinicalTriageEnvironment:
             return True
 
         # For single-patient tasks: done when disposition is set
-        if task_id in ("task_stemi_code", "task_chest_pain_workup"):
+        if task_id in ("task_stemi_code", "task_chest_pain_workup", "task_sepsis_alert", "task_stroke_code", "task_pediatric_resp"):
             if self._state.dispositions:
                 return True
 

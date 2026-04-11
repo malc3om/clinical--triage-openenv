@@ -194,11 +194,17 @@ async def grade(request: GradeRequest):
         from clinical_triage_env.server.graders.stemi_grader import grade_stemi
         from clinical_triage_env.server.graders.chest_workup_grader import grade_chest_workup
         from clinical_triage_env.server.graders.mci_grader import grade_mci
+        from clinical_triage_env.server.graders.sepsis_grader import grade_sepsis
+        from clinical_triage_env.server.graders.stroke_grader import grade_stroke
+        from clinical_triage_env.server.graders.pediatric_grader import grade_pediatric
 
         graders = {
             "task_stemi_code": grade_stemi,
             "task_chest_pain_workup": grade_chest_workup,
             "task_mci_surge": grade_mci,
+            "task_sepsis_alert": grade_sepsis,
+            "task_stroke_code": grade_stroke,
+            "task_pediatric_resp": grade_pediatric,
         }
 
         grader = graders.get(request.task_id)
