@@ -30,8 +30,7 @@ node_modules/
 out/
 dashboard_out/
 
-# Lock files — use requirements.txt only
-package-lock.json
+# Lock files — use requirements.txt only for Python
 uv.lock
 
 # Misc

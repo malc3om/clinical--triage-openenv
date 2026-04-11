@@ -104,6 +104,12 @@ async def health():
     return {"status": "healthy"}
 
 
+@app.get("/ping")
+async def ping():
+    """Ping endpoint — required by OpenEnv validation pipeline."""
+    return {"status": "ok"}
+
+
 
 @app.post("/reset", response_model=TriageObservation)
 async def reset(request: Optional[ResetRequest] = None):
@@ -288,8 +294,13 @@ if has_dashboard:
 
 # ─── Run server ─────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main():
+    """Entry point for the clinical-triage-server console script."""
     import uvicorn
-
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+if __name__ == "__main__":
+    main()
+

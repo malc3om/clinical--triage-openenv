@@ -4,7 +4,8 @@ description: >
   A real-world Emergency Department triage environment where an AI agent
   must assess patients, order diagnostics, assign acuity levels, and make
   disposition decisions under time pressure and resource constraints.
-  Simulates three clinical scenarios of increasing difficulty.
+  Simulates six clinical scenarios spanning STEMI, PE workup, mass casualty,
+  sepsis, stroke, and pediatric respiratory emergencies.
 author: "Team Unfazed"
 tags:
   - openenv

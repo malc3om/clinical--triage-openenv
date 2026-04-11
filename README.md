@@ -17,9 +17,7 @@ app_port: 7860
 
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg)](https://fastapi.tiangolo.com)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status: Final Submission](https://img.shields.io/badge/Status-Final_Submission_Ready-success.svg)](#)
 
 **Team Unfazed** · Meta × Scaler OpenEnv Hackathon
 
@@ -35,7 +33,7 @@ Emergency triage is one of the highest-stakes sequential decision tasks in medic
 - **Over-triage gridlocks the ED** — assigning ESI-1 to a stable patient blocks resuscitation bays
 - **No standardized RL benchmark exists** for clinical decision-making under uncertainty
 
-ClinicalTriageEnv is a **fully synthetic**, HIPAA-free simulation that benchmarks AI agents on three clinical scenarios of increasing difficulty — from a clear-cut STEMI to a five-patient mass casualty surge with only three beds.
+ClinicalTriageEnv is a **fully synthetic**, HIPAA-free simulation that benchmarks AI agents on **six clinical scenarios** of increasing difficulty — from a clear-cut STEMI to a five-patient mass casualty surge with only three beds, plus sepsis management, stroke code, and pediatric respiratory emergencies.
 
 ---
 
@@ -48,86 +46,91 @@ ClinicalTriageEnv is a **fully synthetic**, HIPAA-free simulation that benchmark
 │  ┌──────────────┐    ┌──────────────┐    ┌────────────────────┐    │
 │  │   Patient     │    │   Dynamic    │    │    Deterministic   │    │
 │  │  Generator    │───▶│   Vitals     │───▶│     Graders        │    │
-│  │  (3 tasks)    │    │   Engine     │    │  (STEMI/Chest/MCI) │    │
+│  │  (6 tasks)    │    │   Engine     │    │  (6 per-task)      │    │
 │  └──────────────┘    └──────────────┘    └────────────────────┘    │
 │         │                    │                      │               │
 │         ▼                    ▼                      ▼               │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │              Environment Engine (step / reset / grade)       │   │
-│  │         Dense Reward · Fatal Delay Detection · ESI Logic     │   │
+│  │     Dense Reward · Fatal Delay Detection · ESI Logic         │   │
+│  │     Stochastic Patient Vitals · Resource Scarcity            │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                              │                                      │
 │              ┌───────────────┼───────────────┐                      │
 │              ▼               ▼               ▼                      │
 │        REST API         WebSocket       inference.py                │
-│       (FastAPI)         (Real-time)    (Agent Runner)               │
-│       :7860             :7860/ws      LLM-first ReAct Agent         │
+│       (FastAPI)         (Real-time)    (LLM ReAct Agent)            │
+│       :7860             :7860/ws      100% LLM decisions            │
 └─────────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼
-                ┌──────────────────────────┐
-                │   Brutalist Dashboard    │
-                │       (Next.js)          │
-                │                          │
-                │  ┌────┐ ┌─────┐ ┌────┐  │
-                │  │Wait│ │Live │ │Neur│  │
-                │  │Room│ │Vital│ │Trac│  │
-                │  │    │ │  s  │ │  e │  │
-                │  └────┘ └─────┘ └────┘  │
-                │    :3000 (dev)           │
-                └──────────────────────────┘
 ```
 
 ---
 
 ## Features
 
+### 🎲 Stochastic Patient Generation
+Patient vitals vary between episodes via seeded randomness — heart rate, blood pressure, SpO2, temperature, and onset times all fluctuate within clinically realistic ranges. No two episodes are identical, preventing memorization.
+
 ### 🧬 Dynamic Vitals Engine
-Patient vitals deteriorate probabilistically over time. A STEMI patient's blood pressure drops, heart rate climbs, and SpO2 falls unless the agent intervenes. Each action costs simulated time — ordering bloodwork burns 30 minutes, administering epinephrine takes 1 minute.
+Patient vitals deteriorate over time based on their condition. A STEMI patient's blood pressure drops, heart rate climbs, and SpO2 falls unless the agent intervenes. Untreated anaphylaxis causes progressive hypotension. Each action costs simulated time — ordering bloodwork burns 30 minutes, administering epinephrine takes 1 minute.
 
 ### ⏱️ Fatal Delay Detection
-Miss the 90-minute door-to-balloon window for a STEMI? **-10.0 penalty, episode terminated.** Fail to treat anaphylaxis within 15 minutes? Same. Clinical time windows are enforced with hard stops.
+Miss the 90-minute door-to-balloon window for a STEMI? **-10.0 penalty, episode terminated.** Fail to treat anaphylaxis within 15 minutes? Same. Sepsis hour-1 bundle deadline? Same. Clinical time windows are enforced with hard stops.
 
 ### 📊 Dense Reward Signal
 Every step returns a reward composed of 5 weighted components:
 
 | Component | Range | What It Rewards |
 |-----------|-------|-----------------|
-| Clinical Correctness | +0.10 to +0.30 | Ordering indicated tests, correct ESI assignment |
+| Clinical Correctness | +0.05 to +0.20 | Ordering indicated tests, correct ESI assignment, medications |
 | Efficiency | -0.05 | Penalty per unnecessary or redundant test |
-| Time Pressure | -0.02/step | ESI-1 patients bleed reward each step of delay |
+| Time Pressure | -0.01 to -0.02/step | Critical patients bleed reward each step of delay |
 | Sequence Bonus | +0.05 | Following evidence-based diagnostic ordering |
-| Safety Guardrails | -0.50 to -10.0 | Discharging ESI-1, fatal window violations |
+| Safety Guardrails | -0.50 to -10.0 | Discharging ESI-1, fatal window violations, loop detection |
 
-### 🖥️ Brutalist Clinical Dashboard
-A real-time monitoring station built with Next.js:
-- **Waiting Room** — Patient queue with chief complaints and vitals at a glance
-- **Live Vitals** — Heart rate, blood pressure, SpO2, GCS with sparkline trend graphs
-- **Neural Trace** — Watch the agent's `<thought>` reasoning stream live from the LLM
-- **Post-Episode Audit** — Letter-grade report card with clinical performance breakdown
-
-### 🧠 ReAct Clinical Reasoning
-LLM agent mode uses structured Observation → Thought → Action reasoning with `<thought>` tags. Supports OpenAI, Together AI (Llama-3-70B), and Groq endpoints.
+### 🧠 ReAct Clinical Reasoning Agent
+The `inference.py` agent uses structured Observation → Thought → Action reasoning with `<thought>` tags. Every action decision is made by the LLM — there are **zero hardcoded action sequences** and **zero deterministic fallbacks**. Parse failures result in a simple `wait` action (costing the agent a step).
 
 ---
 
 ## Tasks
 
 ### Task 1: `task_stemi_code` · Easy
-> 58-year-old male. Crushing substernal chest pain radiating to left arm. ST-elevation in leads V1-V4. Hypotensive (85/50), diaphoretic, HR 110.
+> 58-year-old male. Crushing substernal chest pain radiating to left arm. ST-elevation in leads II, III, aVF. Hypotensive, diaphoretic, HR 102.
 
-**The agent must**: Recognize STEMI → Assign ESI-1 → Activate cath lab → Aspirin 325mg → Admit to ICU. All within the 90-minute window.
+**The agent must**: Recognize STEMI → Assign ESI-1 → Activate cath lab → Administer aspirin → Admit. All within the 90-minute window.
 
-**Max Steps**: 15 · **Baseline**: 0.72 · **Optimal**: 0.90
+**Max Steps**: 15 · **Baseline**: 0.72
 
 ### Task 2: `task_chest_pain_workup` · Medium
-> 44-year-old female. Pleuritic chest pain, worse with inspiration. Recent 14-hour transatlantic flight. Currently on oral contraceptives. Wells score elevated.
+> 44-year-old female. Pleuritic chest pain, worse with inspiration. Recent long-haul flight. On oral contraceptives.
 
-**Differential**: PE vs ACS vs MSK vs Anxiety. **The agent must**: Navigate the diagnostic sequence — EKG first (rule out ACS), then D-dimer, then CT-PA if positive. Order matters.
+**Differential**: PE vs ACS vs MSK. **The agent must**: Navigate the diagnostic sequence — EKG first (rule out ACS), then D-dimer, then CT-PA if positive; order matters.
 
-**Max Steps**: 20 · **Baseline**: 0.48 · **Optimal**: 0.95
+**Max Steps**: 20 · **Baseline**: 0.48
 
-### Task 3: `task_mci_surge` · Hard
+### Task 3: `task_sepsis_alert` · Medium
+> 68-year-old male. Fever, chills, confusion, dark urine. HR 118, BP 82/48, SpO2 92%, Temp 39.2°C, GCS 13.
+
+**The agent must**: Recognize sepsis → Order lactate and cultures → Administer IV antibiotics and fluids within 1-hour bundle → Assign ESI-2 → Admit to ICU.
+
+**Max Steps**: 20 · **Baseline**: 0.60
+
+### Task 4: `task_pediatric_resp` · Medium
+> 4-year-old male. Severe wheezing with intercostal retractions, not eating. HR 145, SpO2 89%, RR 42.
+
+**The agent must**: Administer nebulized albuterol/steroids → Allow reassessment time → Assign ESI-2 → Admit for persistent hypoxia.
+
+**Max Steps**: 18 · **Baseline**: 0.65
+
+### Task 5: `task_stroke_code` · Hard
+> 72-year-old female. Sudden onset right-sided weakness, facial droop, slurred speech. BP 185/100, GCS 14.
+
+**The agent must**: Activate stroke pathway → STAT CT Head non-contrast → Assign ESI-1 or 2 → Admit/transfer. Time is brain — every minute counts.
+
+**Max Steps**: 18 · **Baseline**: 0.55
+
+### Task 6: `task_mci_surge` · Hard
 > Mass casualty incident. Five patients arrive simultaneously. Three beds available.
 
 | Patient | Presentation | Expected ESI |
@@ -138,9 +141,9 @@ LLM agent mode uses structured Observation → Thought → Action reasoning with
 | P4 · 60M | Rapid AFib at 148 bpm, dizzy | ESI-2 |
 | P5 · 35F | Anxiety, hyperventilation, vitals normal | ESI-4 |
 
-**The agent must**: Triage the sickest first (P1 and P3 before anyone else), allocate beds under scarcity, and manage five concurrent patients without losing anyone.
+**The agent must**: Triage the sickest first (P1 and P3 before anyone else), allocate beds under scarcity, and manage five concurrent patients.
 
-**Max Steps**: 25 · **Baseline**: 0.31 · **Optimal**: 0.95
+**Max Steps**: 25 · **Baseline**: 0.31
 
 ---
 
@@ -160,29 +163,15 @@ pip install -r requirements.txt
 uvicorn clinical_triage_env.app:app --host 0.0.0.0 --port 7860
 ```
 
-### 3. Run Inference (LLM Agent — Primary Mode)
+### 3. Run Inference (LLM Agent)
 
 The agent uses the evaluator-injected `API_BASE_URL` and `API_KEY` to make real LLM API calls through a ReAct clinical reasoning loop.
 
 ```bash
 export API_BASE_URL="https://api.openai.com/v1"
 export API_KEY="your-api-key"
+export MODEL_NAME="gpt-4o-mini"
 python inference.py
-```
-
-### 4. Run Locally Without API Keys (Clinical Heuristic Fallback)
-
-```bash
-export USE_DETERMINISTIC=true
-python inference.py
-```
-
-### 5. Launch the Dashboard (Optional)
-
-```bash
-cd clinical-triage-dashboard
-npm install && npm run dev
-# Open http://localhost:3000
 ```
 
 ### Docker
@@ -223,8 +212,9 @@ print(f"Grader Score: {score.score:.3f}")
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/` | Health check |
-| `GET` | `/health` | Health check (alias) |
+| `GET` | `/` | Root — health check or dashboard redirect |
+| `GET` | `/ping` | Ping endpoint (HTTP 200) |
+| `GET` | `/health` | Health check |
 | `POST` | `/reset` | Start new episode `{"task_id": "task_stemi_code"}` |
 | `POST` | `/step` | Execute action `{"action_type": "...", "patient_id": "P1", "parameter": "..."}` |
 | `GET` | `/state` | Current episode state |
@@ -238,14 +228,14 @@ print(f"Grader Score: {score.score:.3f}")
 
 | `action_type` | `parameter` examples | Time Cost |
 |---------------|---------------------|-----------|
-| `order_diagnostic` | `EKG`, `d_dimer`, `CT_PA`, `troponin_I`, `cbc` | 5–30 min |
-| `assign_esi_level` | `1`, `2`, `3`, `4`, `5` | 2 min |
-| `activate_pathway` | `cath_lab`, `stroke_code`, `trauma` | 5 min |
-| `disposition` | `admit`, `discharge`, `transfer`, `waiting_room` | 3 min |
-| `request_consult` | `cardiology`, `pulmonology` | 15 min |
-| `administer_medication` | `epinephrine`, `aspirin_325mg` | 1 min |
+| `order_diagnostic` | `EKG`, `d_dimer`, `CT_PA`, `troponin_I`, `cbc`, `lactate`, `CT_HEAD_NONCON`, `CTA_HEAD_NECK`, `vbg`, `urinalysis`, `procalcitonin`, `CXR` | 5–45 min |
+| `assign_esi_level` | `1`, `2`, `3`, `4`, `5` | 1 min |
+| `activate_pathway` | `cath_lab`, `stroke`, `trauma`, `sepsis` | 2 min |
+| `disposition` | `admit`, `discharge`, `transfer`, `waiting_room` | 5 min |
+| `request_consult` | `cardiology`, `pulmonology`, `neurology` | 10 min |
+| `administer_medication` | `epinephrine`, `aspirin_325mg`, `ceftriaxone`, `IV_fluid_bolus`, `albuterol_nebulizer`, `dexamethasone` | 1–5 min |
 | `assign_bed` | `resus_bay`, `monitored`, `hallway` | 2 min |
-| `wait` | `""` | 10 min |
+| `wait` | `""` | 15 min |
 
 ---
 
@@ -254,79 +244,83 @@ print(f"Grader Score: {score.score:.3f}")
 | Field | Type | Description |
 |-------|------|-------------|
 | `task_id` | `str` | Current task identifier |
+| `task_difficulty` | `str` | `easy`, `medium`, or `hard` |
 | `step_number` / `max_steps` | `int` | Progress tracking |
 | `elapsed_minutes` | `int` | Simulated time elapsed |
 | `patients` | `List[Patient]` | All patients with vitals, labs, history |
 | `available_beds` | `int` | Remaining beds |
-| `reward` | `float` | Cumulative reward |
+| `reward` | `float` | Step reward |
+| `reward_components` | `dict` | Breakdown of reward signal |
 | `last_action_result` | `str` | Feedback from last action |
+| `last_action_error` | `str` | Error message if action failed |
 | `done` | `bool` | Episode termination flag |
 
-Each patient includes: `vitals` (HR, BP, SpO2, RR, Temp, GCS), `vitals_trend` (↑/↓/→ per vital), `medical_history`, `available_labs`, `pending_labs`, and `resource_tokens_remaining`.
+Each patient includes: `vitals` (HR, BP, SpO2, RR, Temp, GCS), `vitals_trend` (↑/↓/→ per vital), `medical_history`, `current_medications`, `available_labs`, `pending_labs`, `imaging_available`, `pending_imaging`, and `resource_tokens_remaining`.
 
 ---
 
 ## Inference Output Format
 
-The inference script emits OpenEnv-compatible structured output:
-
 ```
-[START] task=task_stemi_code env=clinical_triage model=gpt-4o-mini
-[STEP] step=1 action={"action_type":"assign_esi_level",...} reward=0.25 done=false error=null
-[STEP] step=2 action={"action_type":"activate_pathway",...} reward=0.30 done=false error=null
-[STEP] step=3 action={"action_type":"order_diagnostic",...} reward=0.10 done=false error=null
-[STEP] step=4 action={"action_type":"disposition",...}      reward=0.25 done=true  error=null
-[END]  success=true steps=4 score=0.900 rewards=0.25,0.30,0.10,0.25
+[START] task_name=task_stemi_code task_id=task_stemi_code
+[STEP] step=1 action={"action_type":"assign_esi_level",...} observation={...} reward=0.10
+[STEP] step=2 action={"action_type":"activate_pathway",...} observation={...} reward=0.20
+[STEP] step=3 action={"action_type":"order_diagnostic",...} observation={...} reward=0.15
+[STEP] step=4 action={"action_type":"disposition",...} observation={...} reward=0.15
+[END] task_name=task_stemi_code score=0.900
 ```
 
 ---
 
-## Scores
+## Baseline Scores
 
-| Task | Baseline | LLM Agent (Expected) | Difficulty |
-|------|----------|---------------------|------------|
-| `task_stemi_code` | 0.72 | **0.85+** | Easy |
-| `task_chest_pain_workup` | 0.48 | **0.80+** | Medium |
-| `task_mci_surge` | 0.31 | **0.75+** | Hard |
-| **Average** | 0.50 | **0.80+** | |
+| Task | Difficulty | Baseline Score |
+|------|-----------|---------------|
+| `task_stemi_code` | Easy | 0.72 |
+| `task_chest_pain_workup` | Medium | 0.48 |
+| `task_sepsis_alert` | Medium | 0.60 |
+| `task_pediatric_resp` | Medium | 0.65 |
+| `task_stroke_code` | Hard | 0.55 |
+| `task_mci_surge` | Hard | 0.31 |
+| **Average** | | **0.55** |
 
 ---
 
 ## Project Structure
 
 ```
-clinical_triage_env/
-├── inference.py                    # LLM-first ReAct clinical reasoning agent
+clinical-triage-env/
+├── inference.py                    # LLM-first ReAct clinical reasoning agent (zero hardcoding)
+├── openenv.yaml                    # OpenEnv task manifest (6 tasks)
+├── requirements.txt                # Python dependencies (single source of truth)
+├── pyproject.toml                  # Package metadata
+├── Dockerfile                      # Multi-stage build (non-root user)
+├── .dockerignore                   # Excludes __pycache__, .git, lock files
+├── validate_submission.py          # Pre-submission validation (41 checks)
 ├── run_demo.py                     # Full demo orchestrator
-├── validate_submission.py          # Pre-submission validation (8 checks)
-├── requirements.txt
-├── Dockerfile                      # Multi-stage (dashboard + backend)
-├── openenv.yaml                    # OpenEnv task manifest
 │
 ├── clinical_triage_env/            # Core Python package
-│   ├── app.py                      # FastAPI server (REST + WebSocket)
-│   ├── models.py                   # Pydantic models (observation/action/state)
+│   ├── app.py                      # FastAPI server (REST + WebSocket + /ping)
+│   ├── models.py                   # Pydantic v2 models (observation/action/state)
 │   └── server/
 │       ├── environment.py          # Main environment engine
-│       ├── reward.py               # 5-component dense reward function
-│       ├── patient_generator.py    # Seeded patient generation (3 tasks)
+│       ├── reward.py               # 5-component dense reward (all 6 tasks)
+│       ├── patient_generator.py    # Stochastic patient generation (6 tasks)
 │       ├── vitals_engine.py        # Dynamic vitals deterioration
 │       ├── time_costs.py           # Action → simulated time mapping
-│       ├── graders/                # Deterministic graders
-│       │   ├── stemi_grader.py
-│       │   ├── chest_workup_grader.py
-│       │   └── mci_grader.py
-│       └── tasks/                  # Task YAML definitions
+│       └── graders/                # Deterministic graders (one per task)
+│           ├── stemi_grader.py
+│           ├── chest_workup_grader.py
+│           ├── mci_grader.py
+│           ├── sepsis_grader.py
+│           ├── stroke_grader.py
+│           └── pediatric_grader.py
 │
 └── clinical-triage-dashboard/      # Next.js brutalist dashboard
-    ├── src/
-    │   ├── app/
-    │   │   ├── page.tsx            # 4-panel monitoring station
-    │   │   ├── layout.tsx          # Root layout with JetBrains Mono
-    │   │   └── globals.css         # Terminal-green design system
-    │   └── types.ts                # TypeScript interfaces
-    ├── package.json
-    └── next.config.ts
+    └── src/app/
+        ├── page.tsx                # 4-panel monitoring station
+        ├── layout.tsx              # Root layout
+        └── globals.css             # Terminal-green design system
 ```
 
 ---
@@ -335,15 +329,12 @@ clinical_triage_env/
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `API_BASE_URL` | **Yes** | — | LLM API endpoint (injected by evaluator) |
+| `API_BASE_URL` | **Yes** | `https://api.openai.com/v1` | LLM API endpoint (injected by evaluator) |
 | `API_KEY` | **Yes** | — | API key for LLM (injected by evaluator) |
 | `MODEL_NAME` | No | `gpt-4o-mini` | Model identifier |
-| `USE_DETERMINISTIC` | No | `false` | Skip LLM, use clinical heuristics (local dev only) |
-| `HF_TOKEN` | For deploy | — | Hugging Face API token |
+| `HF_TOKEN` | For deploy | — | Hugging Face API token (fallback for API_KEY) |
 | `TASK_NAME` | No | — | Run a single task only |
 | `PORT` | No | `7860` | Server port |
-
-`API_BASE_URL` and `API_KEY` are automatically injected by the hackathon evaluator. For local development without API keys, set `USE_DETERMINISTIC=true`.
 
 ---
 
